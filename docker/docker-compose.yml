@@ -1,22 +1,24 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: pkx-postgres
+  mysql:
+    image: mysql:8.0
+    container_name: pkx-mysql
     environment:
-      POSTGRES_DB: pkx_db
-      POSTGRES_USER: pkx_user
-      POSTGRES_PASSWORD: pkx_pass
+      MYSQL_DATABASE: pkx_db
+      MYSQL_USER: pkx_user
+      MYSQL_PASSWORD: pkx_pass
+      MYSQL_ROOT_PASSWORD: root_pass
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     networks:
       - pkx-network
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pkx_user -d pkx_db"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_pass"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -74,7 +76,7 @@ services:
       "
 
 volumes:
-  postgres_data:
+  mysql_data:
     driver: local
   redis_data:
     driver: local

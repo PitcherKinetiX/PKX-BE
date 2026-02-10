@@ -2,10 +2,13 @@ package com.pkx.domain.analysis.controller;
 
 import com.pkx.common.dto.ApiResponse;
 import com.pkx.common.dto.PageResponse;
+import com.pkx.common.exception.BusinessException;
+import com.pkx.common.exception.ErrorCode;
 import com.pkx.domain.analysis.dto.*;
 import com.pkx.domain.analysis.service.AnalysisService;
 import com.pkx.domain.analysis.service.PdfReportService;
 import com.pkx.domain.user.entity.User;
+import com.pkx.domain.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -42,6 +45,7 @@ public class AnalysisController {
 
     private final AnalysisService analysisService;
     private final PdfReportService pdfReportService;
+    private final UserService userService;
 
     /**
      * Upload video and start analysis.
@@ -181,15 +185,10 @@ public class AnalysisController {
 
     /**
      * Helper method to get User entity from UserDetails.
-     * In real implementation, this should be replaced with proper user service lookup.
      */
     private User getUserFromUserDetails(UserDetails userDetails) {
-        // TODO: Implement proper user lookup from UserService
-        // For now, create a mock user - this should be replaced in production
-        return User.builder()
-                .userId(1L)
-                .email(userDetails.getUsername())
-                .name("Mock User")
-                .build();
+        String email = userDetails.getUsername();
+        return userService.findByEmail(email)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     }
 }

@@ -1,10 +1,13 @@
 package com.pkx.domain.comparison.controller;
 
 import com.pkx.common.dto.ApiResponse;
+import com.pkx.common.exception.BusinessException;
+import com.pkx.common.exception.ErrorCode;
 import com.pkx.domain.comparison.dto.ComparisonRequest;
 import com.pkx.domain.comparison.dto.ComparisonResponse;
 import com.pkx.domain.comparison.service.ComparisonService;
 import com.pkx.domain.user.entity.User;
+import com.pkx.domain.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.*;
 public class ComparisonController {
 
     private final ComparisonService comparisonService;
+    private final UserService userService;
 
     /**
      * Compare two analyses.
@@ -77,11 +81,8 @@ public class ComparisonController {
      * Helper method to get User entity from UserDetails.
      */
     private User getUserFromUserDetails(UserDetails userDetails) {
-        // TODO: Implement proper user lookup from UserService
-        return User.builder()
-                .userId(1L)
-                .email(userDetails.getUsername())
-                .name("Mock User")
-                .build();
+        String email = userDetails.getUsername();
+        return userService.findByEmail(email)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     }
 }

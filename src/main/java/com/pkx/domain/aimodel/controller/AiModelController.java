@@ -1,11 +1,14 @@
 package com.pkx.domain.aimodel.controller;
 
 import com.pkx.common.dto.ApiResponse;
+import com.pkx.common.exception.BusinessException;
+import com.pkx.common.exception.ErrorCode;
 import com.pkx.domain.aimodel.dto.ModelStatusResponse;
 import com.pkx.domain.aimodel.dto.TrainRequest;
 import com.pkx.domain.aimodel.dto.TrainResponse;
 import com.pkx.domain.aimodel.service.AiModelService;
 import com.pkx.domain.user.entity.User;
+import com.pkx.domain.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -28,6 +31,7 @@ import org.springframework.web.bind.annotation.*;
 public class AiModelController {
 
     private final AiModelService aiModelService;
+    private final UserService userService;
 
     /**
      * Get AI model status.
@@ -74,11 +78,8 @@ public class AiModelController {
      * Helper method to get User entity from UserDetails.
      */
     private User getUserFromUserDetails(UserDetails userDetails) {
-        // TODO: Implement proper user lookup from UserService
-        return User.builder()
-                .userId(1L)
-                .email(userDetails.getUsername())
-                .name("Mock User")
-                .build();
+        String email = userDetails.getUsername();
+        return userService.findByEmail(email)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     }
 }

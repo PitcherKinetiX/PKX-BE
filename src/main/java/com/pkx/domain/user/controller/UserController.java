@@ -1,6 +1,8 @@
 package com.pkx.domain.user.controller;
 
 import com.pkx.common.dto.ApiResponse;
+import com.pkx.common.exception.BusinessException;
+import com.pkx.common.exception.ErrorCode;
 import com.pkx.domain.user.dto.ChangePasswordRequest;
 import com.pkx.domain.user.dto.UpdateProfileRequest;
 import com.pkx.domain.user.dto.UserProfileResponse;
@@ -92,11 +94,8 @@ public class UserController {
      * Helper method to get User entity from UserDetails.
      */
     private User getUserFromUserDetails(UserDetails userDetails) {
-        // TODO: Implement proper user lookup from UserService
-        return User.builder()
-                .userId(1L)
-                .email(userDetails.getUsername())
-                .name("Mock User")
-                .build();
+        String email = userDetails.getUsername();
+        return userService.findByEmail(email)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     }
 }

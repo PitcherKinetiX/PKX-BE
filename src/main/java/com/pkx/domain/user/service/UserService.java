@@ -9,6 +9,8 @@ import com.pkx.domain.user.entity.User;
 import com.pkx.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.Optional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +25,14 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+
+    /**
+     * Find user by email.
+     */
+    @Transactional(readOnly = true)
+    public Optional<User> findByEmail(String email) {
+        return userRepository.findByEmail(email);
+    }
 
     /**
      * Get user profile information.

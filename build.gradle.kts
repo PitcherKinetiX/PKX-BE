@@ -31,7 +31,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
 
     // Database
-    runtimeOnly("org.postgresql:postgresql")
+    runtimeOnly("com.mysql:mysql-connector-j")
 
     // Redis
     implementation("redis.clients:jedis:5.1.0")
