@@ -7,6 +7,8 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "analysis_results", indexes = {
@@ -66,6 +68,12 @@ public class AnalysisResult {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @OneToMany(mappedBy = "result", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("featureIndex ASC")
+    @Builder.Default
+    private List<FeatureDetail> features = new ArrayList<>();
+
+    // 기존 JointMetrics 하위 호환 (deprecated - 추후 제거)
     @OneToOne(mappedBy = "result", cascade = CascadeType.ALL, orphanRemoval = true)
     private JointMetrics jointMetrics;
 

@@ -2,21 +2,41 @@ spring:
   application:
     name: pkx-backend
 
-  profiles:
-    active: dev
-
   servlet:
     multipart:
       max-file-size: 500MB
       max-request-size: 500MB
 
+  datasource:
+    url: ${RDB_URL:jdbc:mysql://localhost:3306/pkx_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul}
+    username: ${RDB_USERNAME:root}
+    password: ${RDB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+
   jpa:
     open-in-view: false
-    show-sql: false
+    hibernate:
+      ddl-auto: update
+    show-sql: true
     properties:
       hibernate:
         format_sql: true
         use_sql_comments: false
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 2
 
   jackson:
     serialization:
@@ -43,11 +63,9 @@ logging:
 
 # JWT Configuration
 jwt:
-  # HS512 requires a key size >= 512 bits (>= 64 bytes). Default value below satisfies that,
-  # but in real environments you SHOULD override JWT_SECRET with a long, random value.
   secret: ${JWT_SECRET:pkx-super-secret-key-change-this-in-production-minimum-512-bits-secret-key}
-  expiration: 3600000  # 1 hour in milliseconds
-  refresh-expiration: 604800000  # 7 days in milliseconds
+  expiration: 3600000  # 1 hour
+  refresh-expiration: 604800000  # 7 days
 
 # CORS Configuration
 cors:
@@ -58,12 +76,25 @@ cors:
   allow-credentials: true
   max-age: 3600
 
+# MinIO Configuration
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket-name: pkx-videos
+  secure: false
+
 # Application Properties
 app:
   storage:
-    type: minio  # or s3
+    type: minio
     upload-dir: /tmp/pkx-uploads
-
   analysis:
-    max-video-size: 524288000  # 500MB in bytes
+    max-video-size: 524288000  # 500MB
     allowed-extensions: mp4,mov,avi,mkv
+
+# AI Analysis Server
+ai:
+  server:
+    url: ${AI_SERVER_URL:http://localhost:8000}
+    timeout: 300000  # 5 minutes

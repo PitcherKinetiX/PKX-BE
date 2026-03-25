@@ -48,11 +48,11 @@ public class JointMetrics {
     private Integer hipRotation;
 
     // 레이더 차트용 원본 데이터 (JSON)
-    @Column(name = "radar_data", columnDefinition = "jsonb")
+    @Column(name = "radar_data", columnDefinition = "JSON")
     private String radarData;
 
     // 시계열 데이터 (프레임별 에러)
-    @Column(name = "temporal_error_data", columnDefinition = "jsonb")
+    @Column(name = "temporal_error_data", columnDefinition = "JSON")
     private String temporalErrorData;
 
     @CreatedDate

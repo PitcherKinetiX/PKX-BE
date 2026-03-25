@@ -7,7 +7,7 @@ import com.pkx.common.exception.ErrorCode;
 import com.pkx.domain.analysis.dto.*;
 import com.pkx.domain.analysis.entity.Analysis;
 import com.pkx.domain.analysis.entity.AnalysisResult;
-import com.pkx.domain.analysis.entity.JointMetrics;
+import com.pkx.domain.analysis.entity.FeatureDetail;
 import com.pkx.domain.analysis.repository.AnalysisRepository;
 import com.pkx.domain.analysis.repository.AnalysisResultRepository;
 import com.pkx.domain.user.entity.User;
@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Main service for managing analysis operations.
@@ -229,20 +230,20 @@ public class AnalysisService {
     private AnalysisDetailResponse.ResultDetail mapToResultDetail(AnalysisResult result) {
         List<String> recommendations = parseRecommendations(result.getRecommendations());
 
-        AnalysisDetailResponse.JointMetricsDetail jointMetrics = null;
-        if (result.getJointMetrics() != null) {
-            JointMetrics jm = result.getJointMetrics();
-            jointMetrics = AnalysisDetailResponse.JointMetricsDetail.builder()
-                    .shoulderStress(jm.getShoulderStress())
-                    .elbowLoad(jm.getElbowLoad())
-                    .wristLoad(jm.getWristLoad())
-                    .spineAngle(jm.getSpineAngle())
-                    .kneeStability(jm.getKneeStability())
-                    .hipRotation(jm.getHipRotation())
-                    .radarData(jm.getRadarData())
-                    .temporalErrorData(jm.getTemporalErrorData())
-                    .build();
-        }
+        // 13개 FeatureDetail 엔티티 → DTO 변환
+        List<AnalysisDetailResponse.FeatureDetailDto> featureDtos = result.getFeatures().stream()
+                .map(f -> AnalysisDetailResponse.FeatureDetailDto.builder()
+                        .index(f.getFeatureIndex())
+                        .name(f.getName())
+                        .type(f.getType())
+                        .userError(f.getUserError())
+                        .generalError(f.getGeneralError())
+                        .level(f.getLevel())
+                        .peakValue(f.getPeakValue())
+                        .dangerRatio(f.getDangerRatio())
+                        .medicalScore(f.getMedicalScore())
+                        .build())
+                .collect(Collectors.toList());
 
         return AnalysisDetailResponse.ResultDetail.builder()
                 .overallRiskScore(result.getOverallRiskScore())
@@ -255,7 +256,7 @@ public class AnalysisService {
                 .recommendations(recommendations)
                 .criticalZoneDetected(result.getCriticalZoneDetected())
                 .criticalZoneDescription(result.getCriticalZoneDescription())
-                .jointMetrics(jointMetrics)
+                .features(featureDtos)
                 .build();
     }
 

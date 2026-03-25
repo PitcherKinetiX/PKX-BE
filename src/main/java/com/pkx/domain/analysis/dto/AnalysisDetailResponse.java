@@ -1,6 +1,5 @@
 package com.pkx.domain.analysis.dto;
 
-import com.pkx.domain.analysis.entity.AnalysisResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,9 +10,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * Detailed response DTO for completed analysis with full results.
- */
 @Data
 @Builder
 @NoArgsConstructor
@@ -52,17 +48,16 @@ public class AnalysisDetailResponse {
     @Schema(description = "Analysis result details")
     public static class ResultDetail {
 
-        @Schema(description = "Overall risk score (0-100, higher is better)", example = "75")
+        @Schema(description = "Overall risk score (0-100)", example = "75")
         private Integer overallRiskScore;
 
         @Schema(description = "Consistency score (0-100)", example = "82")
         private Integer consistencyScore;
 
-        @Schema(description = "Medical risk score (0-100, higher is better)", example = "70")
+        @Schema(description = "Medical risk score (0-100)", example = "70")
         private Integer medicalRiskScore;
 
-        @Schema(description = "Risk grade", example = "NORMAL",
-                allowableValues = {"GOOD", "NORMAL", "CAUTION", "DANGER"})
+        @Schema(description = "Risk grade", example = "NORMAL")
         private String riskGrade;
 
         @Schema(description = "Model type used", example = "GENERAL")
@@ -83,39 +78,42 @@ public class AnalysisDetailResponse {
         @Schema(description = "Critical zone description if detected")
         private String criticalZoneDescription;
 
-        @Schema(description = "Joint metrics")
-        private JointMetricsDetail jointMetrics;
+        @Schema(description = "13개 생체역학 특징 상세 데이터")
+        private List<FeatureDetailDto> features;
     }
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    @Schema(description = "Joint metrics details")
-    public static class JointMetricsDetail {
+    @Schema(description = "Individual biomechanical feature detail")
+    public static class FeatureDetailDto {
 
-        @Schema(description = "Shoulder stress score (0-100, lower is better)", example = "45")
-        private Integer shoulderStress;
+        @Schema(description = "Feature index (0-12)", example = "0")
+        private Integer index;
 
-        @Schema(description = "Elbow load score (0-100, lower is better)", example = "42")
-        private Integer elbowLoad;
+        @Schema(description = "Feature name", example = "L_elbow_angle")
+        private String name;
 
-        @Schema(description = "Wrist load score (0-100, lower is better)", example = "48")
-        private Integer wristLoad;
+        @Schema(description = "Feature type: angle or velocity", example = "angle")
+        private String type;
 
-        @Schema(description = "Spine angle score (0-100, lower is better)", example = "40")
-        private Integer spineAngle;
+        @Schema(description = "User error rate", example = "0.084")
+        private Double userError;
 
-        @Schema(description = "Knee stability score (0-100, lower is better)", example = "38")
-        private Integer kneeStability;
+        @Schema(description = "General model error rate", example = "0.046")
+        private Double generalError;
 
-        @Schema(description = "Hip rotation score (0-100, lower is better)", example = "45")
-        private Integer hipRotation;
+        @Schema(description = "Risk level", example = "양호")
+        private String level;
 
-        @Schema(description = "Radar chart data (JSON string)")
-        private String radarData;
+        @Schema(description = "Peak velocity value (velocity type only)", example = "580.2")
+        private Double peakValue;
 
-        @Schema(description = "Temporal error data (JSON string)")
-        private String temporalErrorData;
+        @Schema(description = "Danger ratio (velocity type only)", example = "0.83")
+        private Double dangerRatio;
+
+        @Schema(description = "Medical safety score (velocity type only)", example = "100")
+        private Integer medicalScore;
     }
 }

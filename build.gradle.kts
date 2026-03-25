@@ -17,11 +17,22 @@ configurations {
     }
 }
 
+extra["springCloudVersion"] = "2023.0.0"
+
 repositories {
     mavenCentral()
 }
 
+dependencyManagement {
+    imports {
+        mavenBom("org.springframework.cloud:spring-cloud-dependencies:${property("springCloudVersion")}")
+    }
+}
+
 dependencies {
+    // Spring Cloud OpenFeign
+    implementation("org.springframework.cloud:spring-cloud-starter-openfeign")
+
     // Spring Boot Starters
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
