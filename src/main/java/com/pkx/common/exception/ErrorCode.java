@@ -53,7 +53,7 @@ public enum ErrorCode {
     // External service errors (7xxx)
     EXTERNAL_SERVICE_ERROR(7001, "External service error"),
     REDIS_ERROR(7002, "Redis error"),
-    MINIO_ERROR(7003, "MinIO error"),
+    GCS_ERROR(7003, "GCS error"),
     AI_SERVICE_ERROR(7004, "AI service error");
 
     private final int code;

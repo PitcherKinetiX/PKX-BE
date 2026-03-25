@@ -8,6 +8,8 @@ spring:
       max-request-size: 500MB
 
   datasource:
+    # Cloud SQL: RDB_URL 환경변수로 주입 (예: jdbc:mysql:///pkx_db?cloudSqlInstance=PROJECT:REGION:INSTANCE&socketFactory=com.google.cloud.sql.mysql.SocketFactory)
+    # 로컬: jdbc:mysql://localhost:3306/pkx_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
     url: ${RDB_URL:jdbc:mysql://localhost:3306/pkx_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul}
     username: ${RDB_USERNAME:root}
     password: ${RDB_PASSWORD:}
@@ -76,18 +78,15 @@ cors:
   allow-credentials: true
   max-age: 3600
 
-# MinIO Configuration
-minio:
-  endpoint: http://localhost:9000
-  access-key: minioadmin
-  secret-key: minioadmin
-  bucket-name: pkx-videos
-  secure: false
+# GCS Configuration
+gcs:
+  bucket-name: ${GCS_BUCKET_NAME:pkx-videos}
+  project-id: ${GCP_PROJECT_ID:}
 
 # Application Properties
 app:
   storage:
-    type: minio
+    type: gcs
     upload-dir: /tmp/pkx-uploads
   analysis:
     max-video-size: 524288000  # 500MB

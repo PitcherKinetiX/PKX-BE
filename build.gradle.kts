@@ -52,9 +52,11 @@ dependencies {
     runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.3")
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.3")
 
-    // S3/MinIO Client
-    implementation("io.minio:minio:8.5.7")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Google Cloud Storage
+    implementation("com.google.cloud:google-cloud-storage:2.36.1")
+
+    // Cloud SQL MySQL Socket Factory
+    implementation("com.google.cloud.sql:mysql-socket-factory-connector-j-8:1.18.0")
 
     // PDF Generation
     implementation("org.apache.pdfbox:pdfbox:3.0.1")
