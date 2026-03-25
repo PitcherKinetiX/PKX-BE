@@ -40,6 +40,7 @@ out/
 .env
 .env.local
 .env.*.local
+env/*.env
 
 ### Uploads ###
 /uploads/
