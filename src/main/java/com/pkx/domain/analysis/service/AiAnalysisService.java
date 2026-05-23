@@ -39,7 +39,7 @@ public class AiAnalysisService {
 
         // FastAPI에 분석 요청
         AiAnalyzeRequest request = AiAnalyzeRequest.builder()
-                .fileId("v_1") // TODO: 실제 파일 ID 매핑 로직 추가
+                .fileId(analysis.getVideoStoragePath())
                 .userId(analysis.getUser().getUserId())
                 .analysisId(analysisId)
                 .modelType("GENERAL")
