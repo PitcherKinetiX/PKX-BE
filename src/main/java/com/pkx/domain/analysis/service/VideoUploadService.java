@@ -3,6 +3,8 @@ package com.pkx.domain.analysis.service;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
+import java.net.URL;
+import java.util.concurrent.TimeUnit;
 import com.pkx.common.exception.BusinessException;
 import com.pkx.common.exception.ErrorCode;
 import com.pkx.config.GcsConfig;
@@ -113,6 +115,21 @@ public class VideoUploadService {
         } catch (Exception e) {
             log.error("Failed to upload to GCS", e);
             throw new BusinessException(ErrorCode.FILE_UPLOAD_ERROR, "Failed to upload video to GCS", e);
+        }
+    }
+
+    public String generateSignedUrl(String storagePath) {
+        try {
+            BlobInfo blobInfo = BlobInfo.newBuilder(gcsConfig.getBucketName(), storagePath).build();
+            URL signedUrl = storage.signUrl(
+                    blobInfo,
+                    15, TimeUnit.MINUTES,
+                    Storage.SignUrlOption.withV4Signature()
+            );
+            return signedUrl.toString();
+        } catch (Exception e) {
+            log.error("Failed to generate signed URL for: {}", storagePath, e);
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_ERROR, "Signed URL 생성 실패: " + e.getMessage());
         }
     }
 

@@ -80,7 +80,7 @@ cors:
 
 # GCS Configuration
 gcs:
-  bucket-name: ${GCS_BUCKET_NAME:pkx-videos}
+  bucket-name: ${GCS_BUCKET_NAME:pitcherkinetix1}
   project-id: ${GCP_PROJECT_ID:}
 
 # Application Properties

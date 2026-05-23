@@ -27,6 +27,7 @@ public class AiAnalysisService {
     private final AnalysisRepository analysisRepository;
     private final AiAnalysisFeignClient aiAnalysisFeignClient;
     private final ObjectMapper objectMapper;
+    private final VideoUploadService videoUploadService;
 
     /**
      * Feign으로 FastAPI AI 서버에 분석 요청을 보내고 결과를 엔티티로 변환.
@@ -37,12 +38,16 @@ public class AiAnalysisService {
         Analysis analysis = analysisRepository.findById(analysisId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Analysis not found"));
 
+        // GCS Signed URL 생성 (외부 AI 서버가 직접 다운로드하도록)
+        String videoUrl = videoUploadService.generateSignedUrl(analysis.getVideoStoragePath());
+
         // FastAPI에 분석 요청
         AiAnalyzeRequest request = AiAnalyzeRequest.builder()
                 .fileId(analysis.getVideoStoragePath())
                 .userId(analysis.getUser().getUserId())
                 .analysisId(analysisId)
                 .modelType("GENERAL")
+                .videoUrl(videoUrl)
                 .build();
 
         AiAnalyzeResponse aiResponse;

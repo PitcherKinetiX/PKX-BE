@@ -15,4 +15,5 @@ public class AiAnalyzeRequest {
     private Long userId;
     private Long analysisId;
     private String modelType;
+    private String videoUrl;
 }
