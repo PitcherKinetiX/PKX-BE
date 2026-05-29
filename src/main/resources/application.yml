@@ -97,3 +97,11 @@ ai:
   server:
     url: ${AI_SERVER_URL:http://localhost:8000}
     timeout: 300000  # 5 minutes
+
+# Feign Client Timeout
+feign:
+  client:
+    config:
+      ai-analysis:
+        connect-timeout: 10000
+        read-timeout: 300000  # 5 minutes
