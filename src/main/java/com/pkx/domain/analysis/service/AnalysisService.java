@@ -15,7 +15,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -36,6 +35,7 @@ public class AnalysisService {
     private final AnalysisResultRepository analysisResultRepository;
     private final VideoUploadService videoUploadService;
     private final AiAnalysisService aiAnalysisService;
+    private final AsyncAnalysisRunner asyncAnalysisRunner;
     private final ObjectMapper objectMapper;
 
     /**
@@ -66,7 +66,7 @@ public class AnalysisService {
         analysisRepository.save(analysis);
 
         // Start asynchronous AI analysis
-        processAnalysisAsync(analysis.getAnalysisId());
+        asyncAnalysisRunner.run(analysis.getAnalysisId());
 
         return UploadResponse.builder()
                 .analysisId(analysis.getAnalysisId())
@@ -77,42 +77,6 @@ public class AnalysisService {
                 .uploadedAt(analysis.getCreatedAt())
                 .message("Video uploaded successfully and analysis started")
                 .build();
-    }
-
-    /**
-     * Process analysis asynchronously.
-     */
-    @Async
-    @Transactional
-    public void processAnalysisAsync(Long analysisId) {
-        log.info("Starting async analysis processing for analysisId: {}", analysisId);
-
-        try {
-            Analysis analysis = analysisRepository.findById(analysisId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
-
-            // Perform AI analysis (mock in Phase 1)
-            AnalysisResult result = aiAnalysisService.analyzeVideo(analysisId);
-
-            // Save result
-            analysisResultRepository.save(result);
-
-            // Mark analysis as completed
-            analysis.markAsCompleted();
-            analysisRepository.save(analysis);
-
-            log.info("Analysis completed successfully for analysisId: {}", analysisId);
-
-        } catch (Exception e) {
-            log.error("Analysis failed for analysisId: {}", analysisId, e);
-
-            // Mark analysis as failed
-            Analysis analysis = analysisRepository.findById(analysisId).orElse(null);
-            if (analysis != null) {
-                analysis.markAsFailed(e.getMessage());
-                analysisRepository.save(analysis);
-            }
-        }
     }
 
     /**
