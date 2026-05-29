@@ -17,6 +17,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -65,8 +67,14 @@ public class AnalysisService {
         analysis.markAsProcessing();
         analysisRepository.save(analysis);
 
-        // Start asynchronous AI analysis
-        asyncAnalysisRunner.run(analysis.getAnalysisId());
+        // Start async analysis only after this transaction commits — avoids findById race condition
+        final Long asyncAnalysisId = analysis.getAnalysisId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                asyncAnalysisRunner.run(asyncAnalysisId);
+            }
+        });
 
         return UploadResponse.builder()
                 .analysisId(analysis.getAnalysisId())
