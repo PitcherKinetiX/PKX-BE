@@ -9,7 +9,7 @@ spring:
         config:
           ai-analysis:
             connect-timeout: 10000
-            read-timeout: 300000  # 5 minutes
+            read-timeout: 30000   # 비동기 전환 후 각 호출(start/status)이 짧아 30초로 충분
 
   servlet:
     multipart:

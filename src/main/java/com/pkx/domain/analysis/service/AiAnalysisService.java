@@ -7,6 +7,7 @@ import com.pkx.common.exception.ErrorCode;
 import com.pkx.domain.analysis.client.AiAnalysisFeignClient;
 import com.pkx.domain.analysis.dto.AiAnalyzeRequest;
 import com.pkx.domain.analysis.dto.AiAnalyzeResponse;
+import com.pkx.domain.analysis.dto.AiAnalyzeStatusResponse;
 import com.pkx.domain.analysis.entity.Analysis;
 import com.pkx.domain.analysis.entity.AnalysisResult;
 import com.pkx.domain.analysis.entity.FeatureDetail;
@@ -29,6 +30,11 @@ public class AiAnalysisService {
     private final ObjectMapper objectMapper;
     private final VideoUploadService videoUploadService;
 
+    // 비동기 폴링 설정
+    private static final long POLL_INTERVAL_MS = 5_000L;          // 5초 간격
+    private static final long MAX_WAIT_MS = 10 * 60_000L;         // 최대 10분 대기
+    private static final int MAX_CONSECUTIVE_POLL_ERRORS = 5;     // 상태조회 연속 실패 허용 횟수
+
     /**
      * Feign으로 FastAPI AI 서버에 분석 요청을 보내고 결과를 엔티티로 변환.
      */
@@ -50,17 +56,71 @@ public class AiAnalysisService {
                 .videoUrl(videoUrl)
                 .build();
 
-        AiAnalyzeResponse aiResponse;
+        // 1) 비동기 분석 시작 — jobId 즉시 수령 (짧은 호출 → Cloudflare 524 회피)
+        String jobId;
         try {
-            aiResponse = aiAnalysisFeignClient.analyze(request);
-            log.info("AI analysis completed for analysisId: {}, grade: {}", analysisId, aiResponse.getScores().getGrade());
+            jobId = aiAnalysisFeignClient.startAnalyze(request).getJobId();
+            log.info("AI analysis started for analysisId: {}, jobId: {}", analysisId, jobId);
         } catch (Exception e) {
-            log.error("AI service call failed for analysisId: {}", analysisId, e);
-            throw new BusinessException(ErrorCode.AI_SERVICE_ERROR, "AI 분석 서버 호출 실패: " + e.getMessage());
+            log.error("AI service start failed for analysisId: {}", analysisId, e);
+            throw new BusinessException(ErrorCode.AI_SERVICE_ERROR, "AI 분석 시작 실패: " + e.getMessage());
         }
 
-        // AI 응답 → 엔티티 변환
+        // 2) DONE 될 때까지 짧은 폴링 (각 호출이 짧아 Cloudflare 100초 제한에 안 걸림)
+        AiAnalyzeResponse aiResponse = pollUntilDone(analysisId, jobId);
+
+        // 3) AI 응답 → 엔티티 변환
         return mapToAnalysisResult(analysis, aiResponse);
+    }
+
+    /**
+     * AI 서버 잡이 DONE/FAILED 될 때까지 일정 간격으로 상태를 폴링.
+     */
+    private AiAnalyzeResponse pollUntilDone(Long analysisId, String jobId) {
+        long deadline = System.currentTimeMillis() + MAX_WAIT_MS;
+        int consecutiveErrors = 0;
+
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(POLL_INTERVAL_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException(ErrorCode.AI_SERVICE_ERROR, "AI 분석 대기 중 인터럽트됨");
+            }
+
+            AiAnalyzeStatusResponse status;
+            try {
+                status = aiAnalysisFeignClient.getStatus(jobId);
+                consecutiveErrors = 0;
+            } catch (Exception e) {
+                // 일시적 네트워크 오류 / 잡 유실(404) 등 — 일정 횟수까지 재시도
+                consecutiveErrors++;
+                log.warn("AI status poll failed for analysisId: {}, jobId: {} ({}/{}): {}",
+                        analysisId, jobId, consecutiveErrors, MAX_CONSECUTIVE_POLL_ERRORS, e.getMessage());
+                if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+                    throw new BusinessException(ErrorCode.AI_SERVICE_ERROR,
+                            "AI 상태 조회 연속 실패 (jobId=" + jobId + "): " + e.getMessage());
+                }
+                continue;
+            }
+
+            switch (status.getStatus()) {
+                case "DONE" -> {
+                    if (status.getResult() == null) {
+                        throw new BusinessException(ErrorCode.AI_SERVICE_ERROR, "AI 분석 완료됐으나 결과가 비어있음");
+                    }
+                    log.info("AI analysis completed for analysisId: {}, jobId: {}, grade: {}",
+                            analysisId, jobId, status.getResult().getScores().getGrade());
+                    return status.getResult();
+                }
+                case "FAILED" -> throw new BusinessException(ErrorCode.AI_SERVICE_ERROR,
+                        "AI 분석 실패: " + status.getError());
+                default -> { /* PENDING | RUNNING → 계속 폴링 */ }
+            }
+        }
+
+        throw new BusinessException(ErrorCode.AI_SERVICE_ERROR,
+                "AI 분석 시간 초과 (jobId=" + jobId + ", " + (MAX_WAIT_MS / 1000) + "s)");
     }
 
     /**
