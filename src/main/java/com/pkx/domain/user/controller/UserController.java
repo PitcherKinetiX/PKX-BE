@@ -4,6 +4,7 @@ import com.pkx.common.dto.ApiResponse;
 import com.pkx.common.exception.BusinessException;
 import com.pkx.common.exception.ErrorCode;
 import com.pkx.domain.user.dto.ChangePasswordRequest;
+import com.pkx.domain.user.dto.DeleteAccountRequest;
 import com.pkx.domain.user.dto.UpdateProfileRequest;
 import com.pkx.domain.user.dto.UserProfileResponse;
 import com.pkx.domain.user.entity.User;
@@ -88,6 +89,26 @@ public class UserController {
         userService.changePassword(request, user);
 
         return ApiResponse.success("Password changed successfully", null);
+    }
+
+    /**
+     * Delete (withdraw) current user account.
+     */
+    @DeleteMapping("/me")
+    @Operation(
+            summary = "Delete account",
+            description = "Permanently delete the authenticated user's account and all associated data"
+    )
+    public ApiResponse<Void> deleteAccount(
+            @Valid @RequestBody DeleteAccountRequest request,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        log.info("Account deletion request from user: {}", userDetails.getUsername());
+
+        User user = getUserFromUserDetails(userDetails);
+        userService.deleteAccount(user, request.getPassword());
+
+        return ApiResponse.success("Account deleted successfully", null);
     }
 
     /**

@@ -2,15 +2,21 @@ package com.pkx.domain.user.service;
 
 import com.pkx.common.exception.BusinessException;
 import com.pkx.common.exception.ErrorCode;
+import com.pkx.domain.analysis.entity.Analysis;
+import com.pkx.domain.analysis.repository.AnalysisRepository;
+import com.pkx.domain.analysis.service.VideoUploadService;
 import com.pkx.domain.user.dto.ChangePasswordRequest;
 import com.pkx.domain.user.dto.UpdateProfileRequest;
 import com.pkx.domain.user.dto.UserProfileResponse;
 import com.pkx.domain.user.entity.User;
+import com.pkx.domain.user.repository.RefreshTokenRepository;
 import com.pkx.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.List;
 import java.util.Optional;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +31,12 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AnalysisRepository analysisRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final VideoUploadService videoUploadService;
+    private final RedisTemplate<String, Object> redisTemplate;
+
+    private static final String REFRESH_TOKEN_PREFIX = "refresh_token:";
 
     /**
      * Find user by email.
@@ -100,5 +112,40 @@ public class UserService {
         userRepository.save(dbUser);
 
         log.info("Password changed successfully for user: {}", user.getUserId());
+    }
+
+    /**
+     * Permanently delete (withdraw) the user account and all associated data.
+     * Deletes the user's analyses (cascading to results/metrics) and their GCS video files,
+     * removes refresh tokens, then deletes the user.
+     */
+    @Transactional
+    public void deleteAccount(User user, String rawPassword) {
+        log.info("Account deletion requested for user: {}", user.getUserId());
+
+        User dbUser = userRepository.findById(user.getUserId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        // Verify password before deletion
+        if (!passwordEncoder.matches(rawPassword, dbUser.getPassword())) {
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "Password is incorrect");
+        }
+
+        // Delete the user's analyses (DB cascade handles results/metrics) and GCS video files
+        List<Analysis> analyses = analysisRepository.findByUser(dbUser);
+        for (Analysis analysis : analyses) {
+            videoUploadService.deleteFile(analysis.getVideoStoragePath());
+        }
+        analysisRepository.deleteAll(analyses);
+
+        // Remove persisted refresh tokens and the cached one in Redis
+        refreshTokenRepository.deleteByUser(dbUser);
+        redisTemplate.delete(REFRESH_TOKEN_PREFIX + dbUser.getEmail());
+
+        // Finally remove the user
+        userRepository.delete(dbUser);
+
+        log.info("Account deleted successfully for user: {} (analyses removed: {})",
+                dbUser.getUserId(), analyses.size());
     }
 }
