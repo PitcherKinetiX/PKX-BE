@@ -4,7 +4,7 @@ import com.pkx.common.exception.BusinessException;
 import com.pkx.common.exception.ErrorCode;
 import com.pkx.domain.analysis.entity.Analysis;
 import com.pkx.domain.analysis.entity.AnalysisResult;
-import com.pkx.domain.analysis.entity.JointMetrics;
+import com.pkx.domain.analysis.entity.FeatureDetail;
 import com.pkx.domain.analysis.repository.AnalysisRepository;
 import com.pkx.domain.comparison.dto.ComparisonRequest;
 import com.pkx.domain.comparison.dto.ComparisonResponse;
@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Service for comparing two analyses and calculating improvements.
@@ -51,7 +52,7 @@ public class ComparisonService {
                 .current(buildAnalysisSummary(current))
                 .improvementSummary(calculateImprovementSummary(baseline.getResult(), current.getResult()))
                 .coreMetrics(compareCoreMetrics(baseline.getResult(), current.getResult()))
-                .jointMetrics(compareJointMetrics(baseline.getResult().getJointMetrics(), current.getResult().getJointMetrics()))
+                .jointMetrics(compareJointMetrics(baseline.getResult(), current.getResult()))
                 .insights(generateInsights(baseline.getResult(), current.getResult()))
                 .build();
 
@@ -183,71 +184,64 @@ public class ComparisonService {
     }
 
     /**
-     * Compare joint metrics.
+     * 13개 생체역학 특징(features)을 비교. featureIndex로 매칭하고
+     * userError를 0~100 안전 점수(높을수록 안전)로 변환해 비교한다.
+     * (기존 deprecated JointMetrics는 현재 파이프라인이 채우지 않으므로 features 사용)
      */
     private Map<String, ComparisonResponse.JointMetricComparison> compareJointMetrics(
-            JointMetrics baseline, JointMetrics current) {
+            AnalysisResult baseline, AnalysisResult current) {
 
-        Map<String, ComparisonResponse.JointMetricComparison> jointComparisons = new LinkedHashMap<>();
+        Map<Integer, FeatureDetail> baselineByIndex = baseline.getFeatures().stream()
+                .collect(Collectors.toMap(FeatureDetail::getFeatureIndex, f -> f, (a, b) -> a, LinkedHashMap::new));
 
-        jointComparisons.put("shoulderStress", createJointComparison(
-                "Shoulder Stress",
-                baseline.getShoulderStress(),
-                current.getShoulderStress()));
-
-        jointComparisons.put("elbowLoad", createJointComparison(
-                "Elbow Load",
-                baseline.getElbowLoad(),
-                current.getElbowLoad()));
-
-        jointComparisons.put("wristLoad", createJointComparison(
-                "Wrist Load",
-                baseline.getWristLoad(),
-                current.getWristLoad()));
-
-        jointComparisons.put("spineAngle", createJointComparison(
-                "Spine Angle",
-                baseline.getSpineAngle(),
-                current.getSpineAngle()));
-
-        jointComparisons.put("kneeStability", createJointComparison(
-                "Knee Stability",
-                baseline.getKneeStability(),
-                current.getKneeStability()));
-
-        jointComparisons.put("hipRotation", createJointComparison(
-                "Hip Rotation",
-                baseline.getHipRotation(),
-                current.getHipRotation()));
-
-        return jointComparisons;
+        Map<String, ComparisonResponse.JointMetricComparison> comparisons = new LinkedHashMap<>();
+        for (FeatureDetail currentFeature : current.getFeatures()) {
+            FeatureDetail baselineFeature = baselineByIndex.get(currentFeature.getFeatureIndex());
+            if (baselineFeature == null) {
+                continue;
+            }
+            comparisons.put(currentFeature.getName(),
+                    createFeatureComparison(currentFeature.getName(), baselineFeature, currentFeature));
+        }
+        return comparisons;
     }
 
     /**
-     * Create joint metric comparison.
+     * 특징 1개의 비교 결과 생성. 안전 점수가 높을수록(=오차가 작을수록) 개선.
      */
-    private ComparisonResponse.JointMetricComparison createJointComparison(
-            String jointName, Integer baselineValue, Integer currentValue) {
+    private ComparisonResponse.JointMetricComparison createFeatureComparison(
+            String name, FeatureDetail baseline, FeatureDetail current) {
 
-        int change = currentValue - baselineValue;
-        double changePercentage = baselineValue != 0 ? (double) change / baselineValue * 100 : 0;
+        int baselineScore = toSafetyScore(baseline.getUserError());
+        int currentScore = toSafetyScore(current.getUserError());
 
-        // For joint stress metrics, lower is better
+        int change = currentScore - baselineScore;
+        double changePercentage = baselineScore != 0 ? (double) change / baselineScore * 100 : 0;
+
         String status;
         if (Math.abs(change) < 3) {
             status = "NO_CHANGE";
         } else {
-            status = change < 0 ? "IMPROVED" : "DECLINED";
+            status = change > 0 ? "IMPROVED" : "DECLINED";  // 점수 상승 = 개선
         }
 
         return ComparisonResponse.JointMetricComparison.builder()
-                .jointName(jointName)
-                .baselineValue(baselineValue)
-                .currentValue(currentValue)
+                .jointName(name)
+                .baselineValue(baselineScore)
+                .currentValue(currentScore)
                 .change(change)
                 .changePercentage(changePercentage)
                 .status(status)
                 .build();
+    }
+
+    /**
+     * userError(0~1, 낮을수록 좋음) → 0~100 안전 점수(높을수록 안전).
+     */
+    private int toSafetyScore(Double userError) {
+        double err = userError != null ? userError : 0.0;
+        int score = (int) Math.round((1.0 - err) * 100);
+        return Math.max(0, Math.min(100, score));
     }
 
     /**
@@ -271,18 +265,17 @@ public class ComparisonService {
             insights.add("Warning: New critical zone detected - immediate attention required");
         }
 
-        // Joint stress improvements
-        JointMetrics baselineMetrics = baseline.getJointMetrics();
-        JointMetrics currentMetrics = current.getJointMetrics();
-
-        int shoulderImprovement = baselineMetrics.getShoulderStress() - currentMetrics.getShoulderStress();
-        if (shoulderImprovement > 10) {
-            insights.add("Significant improvement in shoulder stress reduction");
-        }
-
-        int elbowImprovement = baselineMetrics.getElbowLoad() - currentMetrics.getElbowLoad();
-        if (elbowImprovement > 10) {
-            insights.add("Notable reduction in elbow load - great progress");
+        // Feature-level improvements (13개 특징 중 개선된 개수)
+        Map<Integer, FeatureDetail> baselineByIndex = baseline.getFeatures().stream()
+                .collect(Collectors.toMap(FeatureDetail::getFeatureIndex, f -> f, (a, b) -> a));
+        long improvedFeatures = current.getFeatures().stream()
+                .filter(cf -> {
+                    FeatureDetail bf = baselineByIndex.get(cf.getFeatureIndex());
+                    return bf != null && cf.getUserError() < bf.getUserError() - 0.03;
+                })
+                .count();
+        if (improvedFeatures > 0) {
+            insights.add(improvedFeatures + " biomechanical features improved compared to the baseline");
         }
 
         // Overall improvement
