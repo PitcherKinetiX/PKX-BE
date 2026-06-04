@@ -2,6 +2,15 @@ spring:
   application:
     name: pkx-backend
 
+  # Spring Cloud OpenFeign 4.x: 설정 접두사가 feign.* → spring.cloud.openfeign.* 로 변경됨
+  cloud:
+    openfeign:
+      client:
+        config:
+          ai-analysis:
+            connect-timeout: 10000
+            read-timeout: 300000  # 5 minutes
+
   servlet:
     multipart:
       max-file-size: 500MB
@@ -98,10 +107,4 @@ ai:
     url: ${AI_SERVER_URL:http://localhost:8000}
     timeout: 300000  # 5 minutes
 
-# Feign Client Timeout
-feign:
-  client:
-    config:
-      ai-analysis:
-        connect-timeout: 10000
-        read-timeout: 300000  # 5 minutes
+# (Feign 타임아웃 설정은 위 spring.cloud.openfeign.client.config 로 이동됨)
