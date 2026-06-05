@@ -65,9 +65,18 @@ public class Analysis {
     @OneToOne(mappedBy = "analysis", cascade = CascadeType.ALL, orphanRemoval = true)
     private AnalysisResult result;
 
+    public void markAsQueued() {
+        this.status = AnalysisStatus.QUEUED;
+    }
+
     public void markAsProcessing() {
         this.status = AnalysisStatus.PROCESSING;
         this.startedAt = LocalDateTime.now();
+    }
+
+    public void requeue() {
+        this.status = AnalysisStatus.QUEUED;
+        this.startedAt = null;
     }
 
     public void markAsCompleted() {
@@ -83,6 +92,7 @@ public class Analysis {
 
     public enum AnalysisStatus {
         UPLOADING,
+        QUEUED,
         PROCESSING,
         COMPLETED,
         FAILED

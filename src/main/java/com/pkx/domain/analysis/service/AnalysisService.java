@@ -17,8 +17,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -37,7 +35,6 @@ public class AnalysisService {
     private final AnalysisResultRepository analysisResultRepository;
     private final VideoUploadService videoUploadService;
     private final AiAnalysisService aiAnalysisService;
-    private final AsyncAnalysisRunner asyncAnalysisRunner;
     private final ObjectMapper objectMapper;
 
     /**
@@ -60,21 +57,10 @@ public class AnalysisService {
                 .status(Analysis.AnalysisStatus.UPLOADING)
                 .build();
 
+        // 큐에 적재만 하고 즉시 응답 — 실제 AI 분석은 AnalysisQueueWorker가 하나씩 처리
+        analysis.markAsQueued();
         analysis = analysisRepository.save(analysis);
-        log.info("Created analysis record with ID: {}", analysis.getAnalysisId());
-
-        // Mark as processing and start async analysis
-        analysis.markAsProcessing();
-        analysisRepository.save(analysis);
-
-        // Start async analysis only after this transaction commits — avoids findById race condition
-        final Long asyncAnalysisId = analysis.getAnalysisId();
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                asyncAnalysisRunner.run(asyncAnalysisId);
-            }
-        });
+        log.info("Created analysis record with ID: {} (QUEUED)", analysis.getAnalysisId());
 
         return UploadResponse.builder()
                 .analysisId(analysis.getAnalysisId())
@@ -105,6 +91,7 @@ public class AnalysisService {
 
         String message = switch (analysis.getStatus()) {
             case UPLOADING -> "Video upload in progress";
+            case QUEUED -> "Waiting in analysis queue";
             case PROCESSING -> "AI analysis in progress";
             case COMPLETED -> "Analysis completed successfully";
             case FAILED -> "Analysis failed";
@@ -189,7 +176,8 @@ public class AnalysisService {
      */
     private Integer calculateProgress(Analysis analysis) {
         return switch (analysis.getStatus()) {
-            case UPLOADING -> 25;
+            case UPLOADING -> 15;
+            case QUEUED -> 30;
             case PROCESSING -> 60;
             case COMPLETED -> 100;
             case FAILED -> 0;

@@ -8,7 +8,6 @@ import com.pkx.domain.analysis.repository.AnalysisRepository;
 import com.pkx.domain.analysis.repository.AnalysisResultRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,10 +20,13 @@ public class AsyncAnalysisRunner {
     private final AnalysisResultRepository analysisResultRepository;
     private final AiAnalysisService aiAnalysisService;
 
-    @Async
+    /**
+     * 큐 워커가 호출하는 동기 처리 메서드 (한 번에 하나씩 직렬 처리).
+     * 호출 시점에 analysis는 이미 PROCESSING으로 claim된 상태.
+     */
     @Transactional
-    public void run(Long analysisId) {
-        log.info("Starting async analysis processing for analysisId: {}", analysisId);
+    public void process(Long analysisId) {
+        log.info("Starting analysis processing for analysisId: {}", analysisId);
 
         try {
             Analysis analysis = analysisRepository.findById(analysisId)
