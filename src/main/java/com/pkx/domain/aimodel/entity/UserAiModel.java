@@ -50,6 +50,15 @@ public class UserAiModel {
     @Column(name = "model_storage_path", length = 500)
     private String modelStoragePath;
 
+    @Column(name = "stats_storage_path", length = 500)
+    private String statsStoragePath;
+
+    @Column(name = "training_job_id", length = 100)
+    private String trainingJobId;
+
+    @Column(name = "error_message", length = 1000)
+    private String errorMessage;
+
     @Column(name = "last_trained_at")
     private LocalDateTime lastTrainedAt;
 
@@ -64,6 +73,7 @@ public class UserAiModel {
     public void markAsTraining() {
         this.status = ModelStatus.TRAINING;
         this.trainingProgress = 0;
+        this.errorMessage = null;
     }
 
     public void markAsReady(BigDecimal accuracy) {
@@ -71,12 +81,19 @@ public class UserAiModel {
         this.trainingProgress = 100;
         this.modelAccuracy = accuracy;
         this.lastTrainedAt = LocalDateTime.now();
+        this.errorMessage = null;
+    }
+
+    public void markAsFailed(String errorMessage) {
+        this.status = ModelStatus.FAILED;
+        this.errorMessage = errorMessage;
     }
 
     public enum ModelStatus {
         NOT_TRAINED,
         TRAINING,
-        READY
+        READY,
+        FAILED
     }
 
 }

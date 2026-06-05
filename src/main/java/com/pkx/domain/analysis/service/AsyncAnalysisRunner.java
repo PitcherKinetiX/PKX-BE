@@ -2,6 +2,7 @@ package com.pkx.domain.analysis.service;
 
 import com.pkx.common.exception.BusinessException;
 import com.pkx.common.exception.ErrorCode;
+import com.pkx.domain.aimodel.service.AiModelService;
 import com.pkx.domain.analysis.entity.Analysis;
 import com.pkx.domain.analysis.entity.AnalysisResult;
 import com.pkx.domain.analysis.repository.AnalysisRepository;
@@ -19,6 +20,7 @@ public class AsyncAnalysisRunner {
     private final AnalysisRepository analysisRepository;
     private final AnalysisResultRepository analysisResultRepository;
     private final AiAnalysisService aiAnalysisService;
+    private final AiModelService aiModelService;
 
     /**
      * 큐 워커가 호출하는 동기 처리 메서드 (한 번에 하나씩 직렬 처리).
@@ -39,6 +41,13 @@ public class AsyncAnalysisRunner {
             analysisRepository.save(analysis);
 
             log.info("Analysis completed successfully for analysisId: {}", analysisId);
+
+            // 분석 완료 영상으로 개인화 모델 백그라운드 증분 업데이트 (요구 3)
+            try {
+                aiModelService.updateModelIncrementally(analysis.getUser(), analysis.getVideoStoragePath());
+            } catch (Exception e) {
+                log.warn("Incremental model update trigger failed for analysisId {}: {}", analysisId, e.getMessage());
+            }
 
         } catch (Exception e) {
             log.error("Analysis failed for analysisId: {}", analysisId, e);

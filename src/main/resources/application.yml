@@ -10,6 +10,9 @@ spring:
           ai-analysis:
             connect-timeout: 10000
             read-timeout: 30000   # 비동기 전환 후 각 호출(start/status)이 짧아 30초로 충분
+          ai-train:
+            connect-timeout: 10000
+            read-timeout: 30000   # 학습도 비동기(start/status) — 각 호출은 짧음
 
   servlet:
     multipart:

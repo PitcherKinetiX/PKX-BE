@@ -12,4 +12,6 @@ public interface UserAiModelRepository extends JpaRepository<UserAiModel, Long> 
 
     Optional<UserAiModel> findByUser(User user);
 
+    Optional<UserAiModel> findByUser_UserId(Long userId);
+
 }

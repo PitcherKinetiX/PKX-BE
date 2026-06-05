@@ -147,6 +147,7 @@ public class GlobalExceptionHandler {
             case 5 -> HttpStatus.BAD_REQUEST;   // 5xxx: File errors
             case 6 -> HttpStatus.INTERNAL_SERVER_ERROR; // 6xxx: Database errors
             case 7 -> HttpStatus.SERVICE_UNAVAILABLE;   // 7xxx: External service errors
+            case 8 -> HttpStatus.BAD_REQUEST;   // 8xxx: AI model errors
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }

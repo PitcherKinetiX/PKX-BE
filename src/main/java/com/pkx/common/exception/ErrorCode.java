@@ -54,7 +54,11 @@ public enum ErrorCode {
     EXTERNAL_SERVICE_ERROR(7001, "External service error"),
     REDIS_ERROR(7002, "Redis error"),
     GCS_ERROR(7003, "GCS error"),
-    AI_SERVICE_ERROR(7004, "AI service error");
+    AI_SERVICE_ERROR(7004, "AI service error"),
+
+    // AI model errors (8xxx)
+    MODEL_NOT_READY(8001, "Personalized AI model is not ready. Please train your model first."),
+    MODEL_TRAINING_IN_PROGRESS(8002, "Model training is already in progress");
 
     private final int code;
     private final String message;

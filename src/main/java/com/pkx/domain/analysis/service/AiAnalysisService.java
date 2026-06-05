@@ -8,6 +8,8 @@ import com.pkx.domain.analysis.client.AiAnalysisFeignClient;
 import com.pkx.domain.analysis.dto.AiAnalyzeRequest;
 import com.pkx.domain.analysis.dto.AiAnalyzeResponse;
 import com.pkx.domain.analysis.dto.AiAnalyzeStatusResponse;
+import com.pkx.domain.aimodel.entity.UserAiModel;
+import com.pkx.domain.aimodel.repository.UserAiModelRepository;
 import com.pkx.domain.analysis.entity.Analysis;
 import com.pkx.domain.analysis.entity.AnalysisResult;
 import com.pkx.domain.analysis.entity.FeatureDetail;
@@ -29,6 +31,7 @@ public class AiAnalysisService {
     private final AiAnalysisFeignClient aiAnalysisFeignClient;
     private final ObjectMapper objectMapper;
     private final VideoUploadService videoUploadService;
+    private final UserAiModelRepository userAiModelRepository;
 
     // 비동기 폴링 설정
     private static final long POLL_INTERVAL_MS = 5_000L;          // 5초 간격
@@ -47,13 +50,27 @@ public class AiAnalysisService {
         // GCS Signed URL 생성 (외부 AI 서버가 직접 다운로드하도록)
         String videoUrl = videoUploadService.generateSignedUrl(analysis.getVideoStoragePath());
 
+        // 개인화 모델이 READY면 해당 모델로 분석 (USER_SPECIFIC), 아니면 일반 모델로 폴백
+        String modelType = "GENERAL";
+        String userModelUrl = null;
+        String userStatsUrl = null;
+        UserAiModel userModel = userAiModelRepository.findByUser(analysis.getUser()).orElse(null);
+        if (userModel != null && userModel.getStatus() == UserAiModel.ModelStatus.READY
+                && userModel.getModelStoragePath() != null && userModel.getStatsStoragePath() != null) {
+            userModelUrl = videoUploadService.generateSignedUrl(userModel.getModelStoragePath());
+            userStatsUrl = videoUploadService.generateSignedUrl(userModel.getStatsStoragePath());
+            modelType = "USER_SPECIFIC";
+        }
+
         // FastAPI에 분석 요청
         AiAnalyzeRequest request = AiAnalyzeRequest.builder()
                 .fileId(analysis.getVideoStoragePath())
                 .userId(analysis.getUser().getUserId())
                 .analysisId(analysisId)
-                .modelType("GENERAL")
+                .modelType(modelType)
                 .videoUrl(videoUrl)
+                .userModelUrl(userModelUrl)
+                .userStatsUrl(userStatsUrl)
                 .build();
 
         // 1) 비동기 분석 시작 — jobId 즉시 수령 (짧은 호출 → Cloudflare 524 회피)
@@ -70,7 +87,7 @@ public class AiAnalysisService {
         AiAnalyzeResponse aiResponse = pollUntilDone(analysisId, jobId);
 
         // 3) AI 응답 → 엔티티 변환
-        return mapToAnalysisResult(analysis, aiResponse);
+        return mapToAnalysisResult(analysis, aiResponse, modelType);
     }
 
     /**
@@ -126,7 +143,7 @@ public class AiAnalysisService {
     /**
      * AI 응답을 AnalysisResult + FeatureDetail 엔티티로 변환.
      */
-    private AnalysisResult mapToAnalysisResult(Analysis analysis, AiAnalyzeResponse response) {
+    private AnalysisResult mapToAnalysisResult(Analysis analysis, AiAnalyzeResponse response, String modelType) {
         AiAnalyzeResponse.Scores scores = response.getScores();
 
         // grade → RiskGrade 매핑
@@ -153,7 +170,9 @@ public class AiAnalysisService {
                 .consistencyScore((int) Math.round(scores.getUserConsistencyScore()))
                 .medicalRiskScore((int) Math.round(scores.getMedicalSafetyScore()))
                 .riskGrade(riskGrade)
-                .modelType(AnalysisResult.ModelType.GENERAL)
+                .modelType("USER_SPECIFIC".equals(modelType)
+                        ? AnalysisResult.ModelType.USER_SPECIFIC
+                        : AnalysisResult.ModelType.GENERAL)
                 .modelAccuracy(BigDecimal.valueOf(scores.getFinalScore()))
                 .riskSummary(riskSummary)
                 .recommendations(recommendationsJson)

@@ -2,239 +2,209 @@ package com.pkx.domain.aimodel.service;
 
 import com.pkx.common.exception.BusinessException;
 import com.pkx.common.exception.ErrorCode;
+import com.pkx.domain.aimodel.client.AiTrainFeignClient;
+import com.pkx.domain.aimodel.dto.AiTrainRequest;
 import com.pkx.domain.aimodel.dto.ModelStatusResponse;
-import com.pkx.domain.aimodel.dto.TrainRequest;
 import com.pkx.domain.aimodel.dto.TrainResponse;
-import com.pkx.domain.analysis.entity.Analysis;
-import com.pkx.domain.analysis.repository.AnalysisRepository;
+import com.pkx.domain.aimodel.entity.UserAiModel;
+import com.pkx.domain.aimodel.repository.UserAiModelRepository;
+import com.pkx.domain.analysis.service.VideoUploadService;
 import com.pkx.domain.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
- * Service for managing user-specific AI models.
- * Phase 1: Mock implementation with simulated training.
- * Phase 2: Will integrate with actual AI model training API.
+ * 사용자별 개인화 AI 모델 학습/상태 관리 서비스.
+ *
+ * 모델 파일(pth/pkl)은 GCS에 저장하고 DB(UserAiModel)에는 경로만 보관한다.
+ * 실제 학습은 AI 서버(/api/train)가 GPU에서 수행하며, 백엔드는 Signed URL로
+ * 입력(영상·기존 모델)을 전달하고 출력(새 모델)을 업로드받는다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiModelService {
 
-    private final AnalysisRepository analysisRepository;
-
-    // In-memory storage for mock training status (Phase 1)
-    // In Phase 2, this will be replaced with database storage
-    private final ConcurrentHashMap<Long, ModelTrainingStatus> trainingStatusMap = new ConcurrentHashMap<>();
+    private final UserAiModelRepository userAiModelRepository;
+    private final VideoUploadService videoUploadService;
+    private final AiTrainFeignClient aiTrainFeignClient;
+    private final AiModelTrainingRunner trainingRunner;
 
     private static final int MINIMUM_TRAINING_SAMPLES = 10;
-    private static final int TRAINING_COOLDOWN_DAYS = 7;
+    private static final String MODEL_CONTENT_TYPE = "application/octet-stream";
+    private static final long SIGNED_URL_TRAINING_MINUTES = 60;  // 학습은 GPU 큐 대기+처리로 길 수 있음
 
     /**
-     * Get AI model status for user.
+     * AI 모델 상태 조회.
      */
     @Transactional(readOnly = true)
     public ModelStatusResponse getModelStatus(User user) {
-        log.info("Getting model status for user: {}", user.getUserId());
+        UserAiModel model = userAiModelRepository.findByUser(user).orElse(null);
 
-        ModelTrainingStatus status = trainingStatusMap.get(user.getUserId());
-
-        // Count completed analyses
-        long completedAnalysesCount = analysisRepository.findByUser_UserId(user.getUserId(),
-                org.springframework.data.domain.Pageable.unpaged())
-                .getTotalElements();
-
-        boolean canTrain = completedAnalysesCount >= MINIMUM_TRAINING_SAMPLES;
-        String cannotTrainReason = null;
-
-        if (!canTrain) {
-            cannotTrainReason = String.format("Minimum %d completed analyses required (currently have %d)",
-                    MINIMUM_TRAINING_SAMPLES, completedAnalysesCount);
-        } else if (status != null && status.getTrainingStatus().equals("TRAINING")) {
-            canTrain = false;
-            cannotTrainReason = "Model training is already in progress";
-        } else if (status != null && status.getLastTrainedAt() != null) {
-            LocalDateTime nextAvailable = status.getLastTrainedAt().plusDays(TRAINING_COOLDOWN_DAYS);
-            if (LocalDateTime.now().isBefore(nextAvailable)) {
-                canTrain = false;
-                cannotTrainReason = String.format("Next training available on %s", nextAvailable.toLocalDate());
-            }
-        }
-
-        if (status == null) {
+        if (model == null) {
             return ModelStatusResponse.builder()
                     .hasCustomModel(false)
                     .currentModelType("GENERAL")
-                    .trainingStatus("NOT_STARTED")
-                    .canTrain(canTrain)
-                    .cannotTrainReason(cannotTrainReason)
+                    .trainingStatus(UserAiModel.ModelStatus.NOT_TRAINED.name())
                     .trainingSampleCount(0)
+                    .trainingProgress(0)
+                    .canTrain(true)
                     .build();
         }
 
+        boolean isReady = model.getStatus() == UserAiModel.ModelStatus.READY;
+        boolean isTraining = model.getStatus() == UserAiModel.ModelStatus.TRAINING;
+
         return ModelStatusResponse.builder()
-                .hasCustomModel(status.getTrainingStatus().equals("READY"))
-                .currentModelType(status.getTrainingStatus().equals("READY") ? "USER_SPECIFIC" : "GENERAL")
-                .trainingStatus(status.getTrainingStatus())
-                .modelAccuracy(status.getModelAccuracy())
-                .trainingSampleCount(status.getTrainingSampleCount())
-                .lastTrainedAt(status.getLastTrainedAt())
-                .nextTrainingAvailable(status.getLastTrainedAt() != null ?
-                        status.getLastTrainedAt().plusDays(TRAINING_COOLDOWN_DAYS) : null)
-                .canTrain(canTrain)
-                .cannotTrainReason(cannotTrainReason)
-                .trainingProgress(status.getTrainingProgress())
+                .hasCustomModel(isReady)
+                .currentModelType(isReady ? "USER_SPECIFIC" : "GENERAL")
+                .trainingStatus(model.getStatus().name())
+                .modelAccuracy(model.getModelAccuracy())
+                .trainingSampleCount(model.getTrainingDataCount())
+                .lastTrainedAt(model.getLastTrainedAt())
+                .canTrain(!isTraining)
+                .cannotTrainReason(isTraining ? "모델 학습/업데이트가 진행 중입니다." : null)
+                .trainingProgress(model.getTrainingProgress())
                 .build();
     }
 
     /**
-     * Train user-specific AI model.
+     * 사용자가 업로드한 영상 10개+ 로 개인화 모델을 학습(전체 재학습).
+     * 일반 모델을 베이스로 fine-tune 한다.
      */
     @Transactional
-    public TrainResponse trainModel(TrainRequest request, User user) {
-        log.info("Training model for user: {} with {} analyses",
-                user.getUserId(), request.getAnalysisIds().size());
-
-        // Validate minimum samples
-        if (request.getAnalysisIds().size() < MINIMUM_TRAINING_SAMPLES) {
+    public TrainResponse trainModel(List<MultipartFile> files, User user) {
+        if (files == null || files.size() < MINIMUM_TRAINING_SAMPLES) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER,
-                    String.format("Minimum %d analyses required for training", MINIMUM_TRAINING_SAMPLES));
+                    String.format("학습에는 최소 %d개의 영상이 필요합니다.", MINIMUM_TRAINING_SAMPLES));
         }
 
-        // Validate all analyses belong to user and are completed
-        List<Analysis> analyses = analysisRepository.findAllById(request.getAnalysisIds());
+        UserAiModel model = userAiModelRepository.findByUser(user)
+                .orElseGet(() -> UserAiModel.builder().user(user).build());
 
-        if (analyses.size() != request.getAnalysisIds().size()) {
-            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
-                    "Some analyses not found");
+        if (model.getStatus() == UserAiModel.ModelStatus.TRAINING) {
+            throw new BusinessException(ErrorCode.MODEL_TRAINING_IN_PROGRESS);
         }
 
-        for (Analysis analysis : analyses) {
-            if (!analysis.getUser().getUserId().equals(user.getUserId())) {
-                throw new BusinessException(ErrorCode.INSUFFICIENT_PERMISSIONS,
-                        "Access denied to analysis: " + analysis.getAnalysisId());
-            }
-
-            if (analysis.getStatus() != Analysis.AnalysisStatus.COMPLETED) {
-                throw new BusinessException(ErrorCode.INVALID_PARAMETER,
-                        "Analysis " + analysis.getAnalysisId() + " is not completed");
-            }
+        // 1) 학습 영상 GCS 업로드 (training/ 접두사) → Signed GET URL
+        List<String> videoPaths = new ArrayList<>();
+        for (MultipartFile file : files) {
+            videoPaths.add(videoUploadService.uploadVideo(file, user.getUserId(), "training").getStoragePath());
         }
+        List<String> videoUrls = videoPaths.stream()
+                .map(p -> videoUploadService.generateSignedUrl(p, SIGNED_URL_TRAINING_MINUTES))
+                .collect(Collectors.toList());
 
-        // Check if training is already in progress
-        ModelTrainingStatus currentStatus = trainingStatusMap.get(user.getUserId());
-        if (currentStatus != null && currentStatus.getTrainingStatus().equals("TRAINING")) {
-            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
-                    "Model training is already in progress");
-        }
+        // 2) 산출물 업로드(PUT)용 Signed URL
+        String modelPath = modelStoragePath(user.getUserId());
+        String statsPath = statsStoragePath(user.getUserId());
+        String modelUploadUrl = videoUploadService.generateUploadSignedUrl(modelPath, MODEL_CONTENT_TYPE, SIGNED_URL_TRAINING_MINUTES);
+        String statsUploadUrl = videoUploadService.generateUploadSignedUrl(statsPath, MODEL_CONTENT_TYPE, SIGNED_URL_TRAINING_MINUTES);
 
-        // Generate training job ID
-        String jobId = "train_" + UUID.randomUUID().toString().substring(0, 8);
-
-        // Create training status
-        ModelTrainingStatus status = ModelTrainingStatus.builder()
+        // 3) AI 서버 학습 시작 (전체 재학습 → baseModelUrl=null)
+        AiTrainRequest request = AiTrainRequest.builder()
                 .userId(user.getUserId())
-                .jobId(jobId)
-                .trainingStatus("TRAINING")
-                .trainingSampleCount(analyses.size())
-                .trainingProgress(0)
-                .startedAt(LocalDateTime.now())
+                .videoUrls(videoUrls)
+                .baseModelUrl(null)
+                .modelUploadUrl(modelUploadUrl)
+                .statsUploadUrl(statsUploadUrl)
+                .incremental(false)
                 .build();
 
-        trainingStatusMap.put(user.getUserId(), status);
+        String jobId;
+        try {
+            jobId = aiTrainFeignClient.startTrain(request).getJobId();
+        } catch (Exception e) {
+            log.error("AI train start failed for userId: {}", user.getUserId(), e);
+            // 업로드한 학습 영상 정리
+            videoPaths.forEach(videoUploadService::deleteFile);
+            throw new BusinessException(ErrorCode.AI_SERVICE_ERROR, "AI 학습 시작 실패: " + e.getMessage());
+        }
 
-        // Start async training (mock in Phase 1)
-        trainModelAsync(user.getUserId(), jobId, analyses.size());
+        model.markAsTraining();
+        model.setTrainingJobId(jobId);
+        model.setTrainingDataCount(files.size());
+        userAiModelRepository.save(model);
 
-        LocalDateTime estimatedCompletion = LocalDateTime.now().plusMinutes(5);
+        // 4) 비동기 폴링 + 완료 처리
+        trainingRunner.runTraining(user.getUserId(), jobId, videoPaths, modelPath, statsPath, files.size());
+
+        log.info("Model training started for userId: {}, jobId: {}, videos: {}",
+                user.getUserId(), jobId, files.size());
 
         return TrainResponse.builder()
                 .trainingJobId(jobId)
                 .status("TRAINING")
-                .sampleCount(analyses.size())
-                .estimatedCompletionTime(estimatedCompletion)
-                .message("Model training started successfully. This will take approximately 5 minutes.")
+                .sampleCount(files.size())
+                .estimatedCompletionTime(LocalDateTime.now().plusMinutes(10))
+                .message("개인화 모델 학습을 시작했습니다.")
                 .build();
     }
 
     /**
-     * Mock async model training.
-     * In Phase 2, this will call the actual AI training API.
+     * 분석이 끝난 영상으로 개인화 모델을 백그라운드 증분 업데이트.
+     * 모델이 READY일 때만 수행하고, 진행 중이면 조용히 스킵한다(다음 분석에서 반영).
      */
-    @Async
-    protected void trainModelAsync(Long userId, String jobId, int sampleCount) {
-        log.info("Starting async model training for user: {}, jobId: {}", userId, jobId);
-
-        try {
-            ModelTrainingStatus status = trainingStatusMap.get(userId);
-            if (status == null || !status.getJobId().equals(jobId)) {
-                log.warn("Training status not found or job ID mismatch");
-                return;
-            }
-
-            // Simulate training progress
-            for (int progress = 10; progress <= 100; progress += 10) {
-                Thread.sleep(30000); // 30 seconds per 10% progress = 5 minutes total
-
-                status.setTrainingProgress(progress);
-                trainingStatusMap.put(userId, status);
-
-                log.info("Training progress for user {}: {}%", userId, progress);
-            }
-
-            // Mark as completed
-            status.setTrainingStatus("READY");
-            status.setTrainingProgress(100);
-            status.setLastTrainedAt(LocalDateTime.now());
-            status.setModelAccuracy(BigDecimal.valueOf(93.5 + Math.random() * 4)); // 93.5-97.5%
-            trainingStatusMap.put(userId, status);
-
-            log.info("Model training completed successfully for user: {}", userId);
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("Training interrupted for user: {}", userId, e);
-
-            ModelTrainingStatus status = trainingStatusMap.get(userId);
-            if (status != null) {
-                status.setTrainingStatus("FAILED");
-                trainingStatusMap.put(userId, status);
-            }
-        } catch (Exception e) {
-            log.error("Training failed for user: {}", userId, e);
-
-            ModelTrainingStatus status = trainingStatusMap.get(userId);
-            if (status != null) {
-                status.setTrainingStatus("FAILED");
-                trainingStatusMap.put(userId, status);
-            }
+    @Transactional
+    public void updateModelIncrementally(User user, String videoStoragePath) {
+        UserAiModel model = userAiModelRepository.findByUser(user).orElse(null);
+        if (model == null || model.getStatus() != UserAiModel.ModelStatus.READY
+                || model.getModelStoragePath() == null || model.getStatsStoragePath() == null) {
+            return;
         }
+
+        String modelPath = model.getModelStoragePath();
+        String statsPath = model.getStatsStoragePath();
+
+        AiTrainRequest request = AiTrainRequest.builder()
+                .userId(user.getUserId())
+                .videoUrls(List.of(videoUploadService.generateSignedUrl(videoStoragePath, SIGNED_URL_TRAINING_MINUTES)))
+                .baseModelUrl(videoUploadService.generateSignedUrl(modelPath, SIGNED_URL_TRAINING_MINUTES))
+                .modelUploadUrl(videoUploadService.generateUploadSignedUrl(modelPath, MODEL_CONTENT_TYPE, SIGNED_URL_TRAINING_MINUTES))
+                .statsUploadUrl(videoUploadService.generateUploadSignedUrl(statsPath, MODEL_CONTENT_TYPE, SIGNED_URL_TRAINING_MINUTES))
+                .incremental(true)
+                .build();
+
+        String jobId;
+        try {
+            jobId = aiTrainFeignClient.startTrain(request).getJobId();
+        } catch (Exception e) {
+            // 분석은 이미 완료됨 — 증분 업데이트 실패는 조용히 무시
+            log.warn("Incremental model update start failed for userId: {}: {}", user.getUserId(), e.getMessage());
+            return;
+        }
+
+        model.markAsTraining();
+        model.setTrainingJobId(jobId);
+        userAiModelRepository.save(model);
+
+        trainingRunner.runIncrementalUpdate(user.getUserId(), jobId, modelPath, statsPath);
+        log.info("Incremental model update started for userId: {}, jobId: {}", user.getUserId(), jobId);
     }
 
     /**
-     * Internal class to track training status.
+     * 사용자가 READY 상태의 개인화 모델을 보유하고 있는지.
      */
-    @lombok.Data
-    @lombok.Builder
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
-    private static class ModelTrainingStatus {
-        private Long userId;
-        private String jobId;
-        private String trainingStatus;
-        private Integer trainingSampleCount;
-        private Integer trainingProgress;
-        private BigDecimal modelAccuracy;
-        private LocalDateTime startedAt;
-        private LocalDateTime lastTrainedAt;
+    @Transactional(readOnly = true)
+    public boolean hasReadyModel(User user) {
+        return userAiModelRepository.findByUser(user)
+                .map(m -> m.getStatus() == UserAiModel.ModelStatus.READY)
+                .orElse(false);
+    }
+
+    private String modelStoragePath(Long userId) {
+        return String.format("models/%d/user_specific_ae.pth", userId);
+    }
+
+    private String statsStoragePath(Long userId) {
+        return String.format("models/%d/user_stats.pkl", userId);
     }
 }

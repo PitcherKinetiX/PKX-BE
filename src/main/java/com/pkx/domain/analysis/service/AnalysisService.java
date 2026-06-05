@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pkx.common.exception.BusinessException;
 import com.pkx.common.exception.ErrorCode;
+import com.pkx.domain.aimodel.entity.UserAiModel;
+import com.pkx.domain.aimodel.repository.UserAiModelRepository;
 import com.pkx.domain.analysis.dto.*;
 import com.pkx.domain.analysis.entity.Analysis;
 import com.pkx.domain.analysis.entity.AnalysisResult;
@@ -35,6 +37,7 @@ public class AnalysisService {
     private final AnalysisResultRepository analysisResultRepository;
     private final VideoUploadService videoUploadService;
     private final AiAnalysisService aiAnalysisService;
+    private final UserAiModelRepository userAiModelRepository;
     private final ObjectMapper objectMapper;
 
     /**
@@ -44,7 +47,17 @@ public class AnalysisService {
     public UploadResponse uploadAndAnalyze(MultipartFile file, User user) {
         log.info("Starting video upload and analysis for user: {}", user.getUserId());
 
-        // Upload video to MinIO
+        // 개인화 모델이 READY일 때만 분석 허용 (없으면 먼저 ai-model 페이지에서 학습)
+        UserAiModel userModel = userAiModelRepository.findByUser(user).orElse(null);
+        if (userModel == null || userModel.getStatus() != UserAiModel.ModelStatus.READY) {
+            if (userModel != null && userModel.getStatus() == UserAiModel.ModelStatus.TRAINING) {
+                throw new BusinessException(ErrorCode.MODEL_TRAINING_IN_PROGRESS,
+                        "모델 학습/업데이트가 진행 중입니다. 잠시 후 다시 시도해주세요.");
+            }
+            throw new BusinessException(ErrorCode.MODEL_NOT_READY);
+        }
+
+        // Upload video to GCS
         VideoUploadService.VideoUploadResult uploadResult = videoUploadService.uploadVideo(file, user.getUserId());
 
         // Create analysis record

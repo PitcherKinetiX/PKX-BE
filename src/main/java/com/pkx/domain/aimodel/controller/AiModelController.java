@@ -4,20 +4,23 @@ import com.pkx.common.dto.ApiResponse;
 import com.pkx.common.exception.BusinessException;
 import com.pkx.common.exception.ErrorCode;
 import com.pkx.domain.aimodel.dto.ModelStatusResponse;
-import com.pkx.domain.aimodel.dto.TrainRequest;
 import com.pkx.domain.aimodel.dto.TrainResponse;
 import com.pkx.domain.aimodel.service.AiModelService;
 import com.pkx.domain.user.entity.User;
 import com.pkx.domain.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 /**
  * REST API controller for AI model management operations.
@@ -55,21 +58,22 @@ public class AiModelController {
     /**
      * Train user-specific AI model.
      */
-    @PostMapping("/train")
+    @PostMapping(value = "/train", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(
             summary = "Train user-specific AI model",
-            description = "Initiate training of a personalized AI model using selected analyses. " +
-                    "Minimum 10 completed analyses required. Training takes approximately 5 minutes."
+            description = "Upload at least 10 pitching videos to train a personalized AI model. " +
+                    "Training runs on the AI server (GPU) and may take several minutes."
     )
     public ApiResponse<TrainResponse> trainModel(
-            @Valid @RequestBody TrainRequest request,
+            @Parameter(description = "Training videos (minimum 10)", required = true)
+            @RequestPart("files") List<MultipartFile> files,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
-        log.info("Model training request from user: {} with {} samples",
-                userDetails.getUsername(), request.getAnalysisIds().size());
+        log.info("Model training request from user: {} with {} videos",
+                userDetails.getUsername(), files == null ? 0 : files.size());
 
         User user = getUserFromUserDetails(userDetails);
-        TrainResponse response = aiModelService.trainModel(request, user);
+        TrainResponse response = aiModelService.trainModel(files, user);
 
         return ApiResponse.success("Model training initiated", response);
     }
