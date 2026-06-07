@@ -59,6 +59,9 @@ public class UserAiModel {
     @Column(name = "error_message", length = 1000)
     private String errorMessage;
 
+    @Column(name = "training_started_at")
+    private LocalDateTime trainingStartedAt;
+
     @Column(name = "last_trained_at")
     private LocalDateTime lastTrainedAt;
 
@@ -74,6 +77,7 @@ public class UserAiModel {
         this.status = ModelStatus.TRAINING;
         this.trainingProgress = 0;
         this.errorMessage = null;
+        this.trainingStartedAt = LocalDateTime.now();
     }
 
     public void markAsReady(BigDecimal accuracy) {
