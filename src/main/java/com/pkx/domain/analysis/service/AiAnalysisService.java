@@ -87,7 +87,7 @@ public class AiAnalysisService {
         AiAnalyzeResponse aiResponse = pollUntilDone(analysisId, jobId);
 
         // 3) AI 응답 → 엔티티 변환
-        return mapToAnalysisResult(analysis, aiResponse, modelType);
+        return mapToAnalysisResult(analysis, aiResponse, modelType, userModel);
     }
 
     /**
@@ -143,7 +143,7 @@ public class AiAnalysisService {
     /**
      * AI 응답을 AnalysisResult + FeatureDetail 엔티티로 변환.
      */
-    private AnalysisResult mapToAnalysisResult(Analysis analysis, AiAnalyzeResponse response, String modelType) {
+    private AnalysisResult mapToAnalysisResult(Analysis analysis, AiAnalyzeResponse response, String modelType, UserAiModel userModel) {
         AiAnalyzeResponse.Scores scores = response.getScores();
 
         // grade → RiskGrade 매핑
@@ -173,7 +173,8 @@ public class AiAnalysisService {
                 .modelType("USER_SPECIFIC".equals(modelType)
                         ? AnalysisResult.ModelType.USER_SPECIFIC
                         : AnalysisResult.ModelType.GENERAL)
-                .modelAccuracy(BigDecimal.valueOf(scores.getFinalScore()))
+                // 분석 신뢰도 = 개인화 모델 정확도 (최종 점수와 중복되지 않도록). 모델 없으면 null.
+                .modelAccuracy(userModel != null ? userModel.getModelAccuracy() : null)
                 .riskSummary(riskSummary)
                 .recommendations(recommendationsJson)
                 .criticalZoneDetected(criticalDetected)
