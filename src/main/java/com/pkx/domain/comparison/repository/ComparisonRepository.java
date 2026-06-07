@@ -12,4 +12,6 @@ public interface ComparisonRepository extends JpaRepository<AnalysisComparison, 
 
     Page<AnalysisComparison> findByUserOrderByCreatedAtDesc(User user, Pageable pageable);
 
+    void deleteByUser(User user);
+
 }

@@ -2,9 +2,11 @@ package com.pkx.domain.user.service;
 
 import com.pkx.common.exception.BusinessException;
 import com.pkx.common.exception.ErrorCode;
+import com.pkx.domain.aimodel.repository.UserAiModelRepository;
 import com.pkx.domain.analysis.entity.Analysis;
 import com.pkx.domain.analysis.repository.AnalysisRepository;
 import com.pkx.domain.analysis.service.VideoUploadService;
+import com.pkx.domain.comparison.repository.ComparisonRepository;
 import com.pkx.domain.user.dto.ChangePasswordRequest;
 import com.pkx.domain.user.dto.UpdateProfileRequest;
 import com.pkx.domain.user.dto.UserProfileResponse;
@@ -35,6 +37,8 @@ public class UserService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final VideoUploadService videoUploadService;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final ComparisonRepository comparisonRepository;
+    private final UserAiModelRepository userAiModelRepository;
 
     private static final String REFRESH_TOKEN_PREFIX = "refresh_token:";
 
@@ -131,18 +135,32 @@ public class UserService {
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "Password is incorrect");
         }
 
-        // Delete the user's analyses (DB cascade handles results/metrics) and GCS video files
+        // 1) 비교 기록 먼저 삭제 (분석/유저를 FK로 참조하므로 가장 먼저)
+        comparisonRepository.deleteByUser(dbUser);
+
+        // 2) 개인화 AI 모델 삭제 (user_id FK) + GCS 모델 파일 정리
+        userAiModelRepository.findByUser(dbUser).ifPresent(model -> {
+            if (model.getModelStoragePath() != null) {
+                videoUploadService.deleteFile(model.getModelStoragePath());
+            }
+            if (model.getStatsStoragePath() != null) {
+                videoUploadService.deleteFile(model.getStatsStoragePath());
+            }
+            userAiModelRepository.delete(model);
+        });
+
+        // 3) 사용자의 분석 삭제 (DB cascade로 결과/지표 삭제) + GCS 영상 파일 삭제
         List<Analysis> analyses = analysisRepository.findByUser(dbUser);
         for (Analysis analysis : analyses) {
             videoUploadService.deleteFile(analysis.getVideoStoragePath());
         }
         analysisRepository.deleteAll(analyses);
 
-        // Remove persisted refresh tokens and the cached one in Redis
+        // 4) Refresh 토큰(DB) + Redis 캐시 제거
         refreshTokenRepository.deleteByUser(dbUser);
         redisTemplate.delete(REFRESH_TOKEN_PREFIX + dbUser.getEmail());
 
-        // Finally remove the user
+        // 5) 마지막으로 사용자 삭제
         userRepository.delete(dbUser);
 
         log.info("Account deleted successfully for user: {} (analyses removed: {})",
